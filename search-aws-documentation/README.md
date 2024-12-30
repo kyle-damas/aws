@@ -6,3 +6,7 @@ The [CloudFormation template](https://github.com/kyle-damas/aws/blob/main/search
 - URL -> The URL that you want to search for specific text.
 - SearchTerm -> The string that you want to search in that URL.
 - SNSTopic -> The ARN for the SNS topic where a message will be published once the text is found on that URL.
+
+> **Note**
+> When looking for Lambda layers, instead of manually creating the necessary layer(s), I was able to use the layers provided by this github:  
+> https://github.com/keithrozario/Klayers/tree/master
