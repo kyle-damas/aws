@@ -1,0 +1,128 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Metadata:
+    Generator: "former2"
+Description: ""
+
+Parameters:
+    URL:
+        Description: URL to search for specific text on.
+        Type: String
+        Default: "https://docs.aws.amazon.com/AmazonRDS/latest/AuroraPostgreSQLReleaseNotes/AuroraPostgreSQL.Updates.html"
+    SearchTerm:
+        Description: Term to search for in the URL.
+        Type: String
+        Default: "15.6.4"
+    SNSTopic:
+        Description: SNS Topic to receive alert.
+        Type: String
+        Default: "arn:aws:sns:<region>:<account>:<topic>"
+
+Resources:
+    IAMRole:
+        Type: "AWS::IAM::Role"
+        Properties:
+          Path: "/service-role/"
+          MaxSessionDuration: 3600
+          RoleName: !Sub "${AWS::StackName}-lambda-role"
+          AssumeRolePolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Principal:
+                  Service: lambda.amazonaws.com
+                Action: sts:AssumeRole
+          Policies:
+            - PolicyName: LogsPolicy
+              PolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                  - Effect: Allow
+                    Action: logs:CreateLogGroup
+                    Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+                  - Effect: Allow
+                    Action:
+                      - logs:CreateLogStream
+                      - logs:PutLogEvents
+                    Resource:
+                      - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}:*"
+            - PolicyName: "SNSPublish"
+              PolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                  - Sid: "VisualEditor0"
+                    Effect: "Allow"
+                    Action: "sns:Publish"
+                    Resource: !Sub "${SNSTopic}"
+
+    LambdaFunction:
+        Type: "AWS::Lambda::Function"
+        Properties:
+            Description: ""
+            FunctionName: !Sub "${AWS::StackName}"
+            Handler: "index.lambda_handler"
+            Architectures: 
+              - "x86_64"
+            Code: 
+                ZipFile: !Sub |
+                    import boto3
+                    import requests
+                    from bs4 import BeautifulSoup
+                    
+                    def lambda_handler(event, context):
+                        url = "${URL}"
+                        search_version = "${SearchTerm}"
+                        sns_topic_arn = "arn:aws:sns:${AWS::Region}:${AWS::AccountId}:text-message-alert"
+                        
+                        response = requests.get(url)
+                        soup = BeautifulSoup(response.content, 'html.parser')
+                        
+                        if search_version in soup.get_text():
+                            sns_client = boto3.client('sns')
+                            message = f"Version {search_version} has been found in the Aurora PostgreSQL Release Notes."
+                            sns_client.publish(
+                                TopicArn=sns_topic_arn,
+                                Message=message,
+                                Subject="Aurora PostgreSQL Version Update"
+                            )
+                            return {
+                                'statusCode': 200,
+                                'body': f"Notification sent: {search_version} found."
+                            }
+                        else:
+                            return {
+                                'statusCode': 200,
+                                'body': f"Version {search_version} not found."
+                            }
+
+            MemorySize: 128
+            Role: !GetAtt IAMRole.Arn
+            Runtime: "python3.12"
+            Timeout: 30
+            TracingConfig: 
+                Mode: "PassThrough"
+            Layers: 
+              - !Sub "arn:aws:lambda:${AWS::Region}:770693421928:layer:Klayers-p312-requests:10"
+              - !Sub "arn:aws:lambda:${AWS::Region}:770693421928:layer:Klayers-p312-scipy:3"
+              - !Sub "arn:aws:lambda:${AWS::Region}:770693421928:layer:Klayers-p312-beautifulsoup4:3"
+            EphemeralStorage: 
+                Size: 512
+
+    LambdaPermission:
+        Type: "AWS::Lambda::Permission"
+        Properties:
+            Action: "lambda:InvokeFunction"
+            FunctionName: !Ref LambdaFunction
+            Principal: "events.amazonaws.com"
+            SourceArn: !GetAtt EventsRule.Arn
+
+    EventsRule:
+        Type: "AWS::Events::Rule"
+        Properties:
+            Name: !Sub "${AWS::StackName}-lambda-schedule"
+            Description: !Sub "Daily schedule for ${AWS::StackName} Lambda."
+            ScheduleExpression: "cron(0 13 ? * * *)"
+            State: "ENABLED"
+            Targets: 
+              - 
+                Arn: !GetAtt LambdaFunction.Arn
+                Id: "TargetLambdaFunction"
