@@ -1,4 +1,4 @@
-# Search AWS Documentation
+# Automating AWS Documentation Query
 **Issue:** My customer was waiting for the next Aurora PostgreSQL patch release as it included an important fix for them.  
 **Solution:** I created a Lambda that searches the URL for specific text and will publish to a SNS topic when the text is found. I scheduled it to run each morning (8 AM CST, which is 13:00 UTC) via EventBridge. I subscribed my phone number to the SNS topic, so I'll receive a text once found.
 
